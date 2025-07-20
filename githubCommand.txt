@@ -1,0 +1,68 @@
+Microsoft Windows [Version 10.0.26100.4351]
+(c) Microsoft Corporation. All rights reserved.
+
+C:\Users\Admin>docker login
+
+USING WEB-BASED LOGIN
+
+i Info → To sign in with credentials on the command line, use 'docker login -u <username>'
+
+
+Your one-time device confirmation code is: LBCB-WCFC
+Press ENTER to open your browser or submit your device code here: https://login.docker.com/activate
+
+Waiting for authentication in the browser…
+
+Login Succeeded
+
+C:\Users\Admin>docker tag fastapi-app prabhat/fastapi-app:latest
+Error response from daemon: No such image: fastapi-app:latest
+
+C:\Users\Admin>docker images
+REPOSITORY            TAG                            IMAGE ID       CREATED         SIZE
+my-fastapi-app        latest                         173e2201f7a5   8 minutes ago   1.99GB
+filtered-leads-app    latest                         a72c10f41532   8 weeks ago     393MB
+milvusdb/milvus       v2.5.5                         1542866476d9   4 months ago    2.42GB
+milvusdb/milvus       v2.3.3                         6145db136874   19 months ago   1.17GB
+minio/minio           RELEASE.2023-03-20T20-16-18Z   6d770d7f255c   2 years ago     365MB
+quay.io/coreos/etcd   v3.5.5                         89b6debd4350   2 years ago     273MB
+
+C:\Users\Admin>docker tag my-fastapi-app:latest prabhat/fastapi-app:latest
+
+C:\Users\Admin>docker push prabhat/fastapi-app:latest
+The push refers to repository [docker.io/prabhat/fastapi-app]
+c2ab13fd9586: Waiting
+799440a7bae7: Waiting
+15658014cd85: Waiting
+4a9e2af5b911: Waiting
+4684f52ed5a8: Waiting
+371f80bf2a55: Waiting
+dad67da3f26b: Waiting
+c12de006601c: Waiting
+9596beeb5a6d: Waiting
+64047eead7d5: Waiting
+ec7e2626ab07: Waiting
+push access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed
+
+C:\Users\Admin>docker push pratimam/fastapi-app:latest
+The push refers to repository [docker.io/pratimam/fastapi-app]
+tag does not exist: pratimam/fastapi-app:latest
+
+C:\Users\Admin>docker tag my-fastapi-app:latest pratimam/fastapi-app:latest
+
+C:\Users\Admin>docker push pratimam/fastapi-app:latest
+The push refers to repository [docker.io/pratimam/fastapi-app]
+15658014cd85: Pushed
+799440a7bae7: Pushed
+c12de006601c: Pushed
+371f80bf2a55: Pushed
+c2ab13fd9586: Pushed
+ec7e2626ab07: Pushed
+4684f52ed5a8: Pushed
+dad67da3f26b: Pushed
+4a9e2af5b911: Pushed
+9596beeb5a6d: Pushed
+64047eead7d5: Pushed
+latest: digest: sha256:173e2201f7a596bff0a0f23b7eaff770a884d5c1cd2b7d261efc4ed3d7b3d2b0 size: 856
+
+C:\Users\Admin>docker push pratimam/fastapi-app:latest

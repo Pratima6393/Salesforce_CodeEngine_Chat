@@ -1,0 +1,160 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "CRM Bot Analysis API",
+    "description": "API for analyzing Salesforce data and providing AI-driven insights via IBM Watsonx Orchestrate custom skill",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://crm-bot.1x50i58rwp2v.us-south.codeengine.appdomain.cloud",
+      "description": "Main API server hosted on IBM Code Engine"
+    }
+  ],
+  "paths": {
+    "/analyze": {
+      "post": {
+        "summary": "Analyze a natural language query about Salesforce data",
+        "description": "Processes user queries (e.g., 'department wise meeting done') and returns AI-generated analysis or insights from Salesforce data",
+        "operationId": "analyzeQuery",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "example": "department wise meeting done",
+                    "description": "Natural language query to analyze Salesforce data (e.g., leads, events, opportunities)"
+                  }
+                },
+                "required": ["question"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful analysis response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "analysis_type": {
+                      "type": "string",
+                      "example": "dept_user_meeting_summary",
+                      "description": "Type of analysis performed"
+                    },
+                    "insight": {
+                      "type": "string",
+                      "example": "Show count of completed meetings grouped by user and department",
+                      "description": "Explanation of the analysis"
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": { "type": "integer" },
+                      "example": {
+                        "Sales": 10,
+                        "Marketing": 5
+                      },
+                      "description": "Analysis data with department names as keys and meeting counts as values"
+                    },
+                    "visualization": {
+                      "type": "object",
+                      "nullable": true,
+                      "example": {
+                        "Dept_Meeting_Done": {
+                          "Sales": 10,
+                          "Marketing": 5
+                        }
+                      },
+                      "description": "Graph data if available"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Sales=10, Marketing=5",
+                      "description": "Human-readable summary of the data"
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "error": {
+                      "type": "string",
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (e.g., missing or invalid question)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": false },
+                    "error": { "type": "string", "example": "Missing required field 'question'" }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized (invalid API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": { "type": "string", "example": "Invalid API Key" }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": false },
+                    "error": { "type": "string", "example": "Analysis failed: Internal error" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "API key for authentication (set via ORCHESTRATE_API_KEY environment variable)"
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ]
+}
