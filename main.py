@@ -1,4 +1,7 @@
+print("🔄 main.py module is being imported (", __file__, ")")
+import time
 import os
+from tracemalloc import start
 import requests
 import json
 import re
@@ -10,18 +13,29 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import datetime
+from dateutil.parser import parse
 from pytz import timezone
+from pytz import UTC
 from dotenv import load_dotenv
 import logging
-from fastapi import FastAPI
 from pydantic import BaseModel
-
-app = FastAPI()
 
 # === Configuration Section ===
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 load_dotenv()
+
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.on_event("startup")
+async def startup_event():
+    print("🐣 startup_event is running")
+    logger.info("🚀 Startup: loading Salesforce data")
+    #load_salesforce_data_async() fetches all objects concurrently
+    leads, users, cases, events, opportunities, tasks = await load_salesforce_data_async()
+    #stash it on the app so we can reuse it later
+    app.state.sf_data = (leads, users, cases, events, opportunities, tasks)
 
 # Salesforce Configuration
 client_id = os.getenv('SF_CLIENT_ID')
@@ -378,7 +392,7 @@ async def load_object_data(session, access_token, base_url, field_sets, object_t
 
     # Build query
     start_date = "2021-04-01T00:00:00Z"
-    end_date = "2025-03-31T23:59:59Z"
+    end_date   = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     date_clause = f" WHERE CreatedDate >= {start_date} AND CreatedDate <= {end_date}" if date_filter else ""
     query = f"SELECT {', '.join(fields)} FROM {object_type}{date_clause} ORDER BY CreatedDate DESC"
     initial_url = base_url + quote(query)
@@ -502,12 +516,16 @@ async def load_salesforce_data_async():
 def load_salesforce_data():
     """Synchronous wrapper for async data loading"""
     try:
+        start = time.time()
         # Get the current event loop or create one if none exists
         loop = asyncio.get_event_loop()
         if loop.is_closed():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        return loop.run_until_complete(load_salesforce_data_async())
+        result = loop.run_until_complete(load_salesforce_data_async())
+        elapsed = time.time() - start
+        logger.info(f"❗️ load_salesforce_data took {elapsed:.1f}s")
+        return result
     except Exception as e:
         logger.error(f"Error loading Salesforce data: {str(e)}")
         raise
@@ -537,8 +555,11 @@ def get_watsonx_token():
     headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
     data = {"grant_type": "urn:ibm:params:oauth:grant-type:apikey", "apikey": WATSONX_API_KEY.strip()}
     logger.info("Requesting IBM Cloud IAM token...")
+    start = time.time()
     try:
         response = requests.post(IBM_CLOUD_IAM_URL, headers=headers, data=data, timeout=90)
+        elapsed = time.time() - start
+        logger.info(f"❗️ get_watsonx_token took {elapsed:.1f}s")
         logger.info(f"IAM Token Response Status: {response.status_code}")
         if response.status_code == 200:
             token_data = response.json()
@@ -675,7 +696,7 @@ def query_watsonx_ai(user_question, data_context, leads_df=None, cases_df=None, 
                     end_date = pd.Timestamp(f"{fy_start_year + 1}-03-31T23:59:59Z", tz="UTC")
 
                 # Apply bounding logic
-                start_date = max(start_date, pd.Timestamp("2021-04-01T00:00:00Z", tz="UTC"))
+                start_date = max(start_date, pd.Timestamp("2024-04-01T00:00:00Z", tz="UTC"))
                 end_date = min(end_date, pd.Timestamp("2025-07-31T23:59:59Z", tz="UTC"))
 
                 date_filters["CreatedDate"] = {
@@ -710,7 +731,7 @@ def query_watsonx_ai(user_question, data_context, leads_df=None, cases_df=None, 
                 try:
                     start_date = pd.to_datetime(f"{start_year}-{start_month}-{start_day}T00:00:00Z", utc=True)
                     end_date = pd.to_datetime(f"{end_year}-{end_month}-{end_day}T23:59:59Z", utc=True)
-                    start_date = max(start_date, pd.to_datetime("2021-04-01T00:00:00Z", utc=True))
+                    start_date = max(start_date, pd.to_datetime("2024-04-01T00:00:00Z", utc=True))
                     end_date = min(end_date, pd.to_datetime("2025-07-31T23:59:59Z", utc=True))
                     date_filters["CreatedDate"] = {
                         "$gte": start_date.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -731,7 +752,7 @@ def query_watsonx_ai(user_question, data_context, leads_df=None, cases_df=None, 
                     start_date = pd.to_datetime(f"{start_year}-{start_month}-01T00:00:00Z", utc=True)
                     end_date = pd.to_datetime(f"{end_year}-{end_month}-01", utc=True) + pd.offsets.MonthEnd(1)
                     end_date = pd.to_datetime(end_date.strftime("%Y-%m-%dT23:59:59Z"), utc=True)
-                    start_date = max(start_date, pd.to_datetime("2021-04-01T00:00:00Z", utc=True))
+                    start_date = max(start_date, pd.to_datetime("2024-04-01T00:00:00Z", utc=True))
                     end_date = min(end_date, pd.to_datetime("2025-07-31T23:59:59Z", utc=True))
                     date_filters["CreatedDate"] = {
                         "$gte": start_date.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -752,7 +773,7 @@ def query_watsonx_ai(user_question, data_context, leads_df=None, cases_df=None, 
             if month:
                 try:
                     specific_date = pd.to_datetime(f"{year}-{month}-{day}T00:00:00Z", utc=True)
-                    specific_date = max(specific_date, pd.to_datetime("2021-04-01T00:00:00Z", utc=True))
+                    specific_date = max(specific_date, pd.to_datetime("2024-04-01T00:00:00Z", utc=True))
                     specific_date = min(specific_date, pd.to_datetime("2025-07-31T23:59:59Z", utc=True))
                     date_filters["CreatedDate"] = {
                         "$gte": specific_date.strftime("%Y-%m-%dT00:00:00Z"),
@@ -770,7 +791,7 @@ def query_watsonx_ai(user_question, data_context, leads_df=None, cases_df=None, 
             year = hinglish_year_match.group(1)
             year_start = pd.to_datetime(f"{year}-01-01T00:00:00Z", utc=True)
             year_end = pd.to_datetime(f"{year}-12-31T23:59:59Z", utc=True)
-            year_start = max(year_start, pd.to_datetime("2021-04-01T00:00:00Z", utc=True))
+            year_start = max(year_start, pd.to_datetime("2024-04-01T00:00:00Z", utc=True))
             year_end = min(year_end, pd.to_datetime("2025-07-31T23:59:59Z", utc=True))
             date_filters["CreatedDate"] = {
                 "$gte": year_start.strftime("%Y-%m-%dT00:00:00Z"),
@@ -787,7 +808,7 @@ def query_watsonx_ai(user_question, data_context, leads_df=None, cases_df=None, 
         elif "last week" in question_lower and not date_filters:
             last_week_end = current_date - pd.Timedelta(days=current_date.weekday() + 1)
             last_week_start = last_week_end - pd.Timedelta(days=6)
-            last_week_start = max(last_week_start, pd.to_datetime("2021-04-01T00:00:00Z", utc=True))
+            last_week_start = max(last_week_start, pd.to_datetime("2024-04-01T00:00:00Z", utc=True))
             last_week_end = min(last_week_end, pd.to_datetime("2025-07-31T23:59:59Z", utc=True))
             date_filters["CreatedDate"] = {
                 "$gte": last_week_start.strftime("%Y-%m-%dT00:00:00Z"),
@@ -796,7 +817,7 @@ def query_watsonx_ai(user_question, data_context, leads_df=None, cases_df=None, 
         elif "last month" in question_lower and not date_filters:
             last_month_end = (current_date.replace(day=1) - pd.Timedelta(days=1)).replace(hour=23, minute=59, second=59)
             last_month_start = last_month_end.replace(day=1, hour=0, minute=0, second=0)
-            last_month_start = max(last_month_start, pd.to_datetime("2021-04-01T00:00:00Z", utc=True))
+            last_month_start = max(last_month_start, pd.to_datetime("2024-04-01T00:00:00Z", utc=True))
             last_month_end = min(last_month_end, pd.to_datetime("2025-07-31T23:59:59Z", utc=True))
             date_filters["CreatedDate"] = {
                 "$gte": last_month_start.strftime("%Y-%m-%dT00:00:00Z"),
@@ -823,7 +844,7 @@ def query_watsonx_ai(user_question, data_context, leads_df=None, cases_df=None, 
                 end_date = current_date
 
                 # Apply min/max bounds
-                start_date = max(start_date, pd.to_datetime("2021-04-01T00:00:00Z", utc=True))
+                start_date = max(start_date, pd.to_datetime("2024-04-01T00:00:00Z", utc=True))
                 end_date = min(end_date, pd.to_datetime("2025-07-31T23:59:59Z", utc=True))
 
                 date_filters["CreatedDate"] = {
@@ -1422,7 +1443,10 @@ Respond with valid JSON only.
         }
 
         logger.info(f"Querying WatsonX AI with model: {WATSONX_MODEL_ID}")
+        start = time.time()
         response = requests.post(ml_url, headers=headers, json=body, timeout=90)
+        elapsed = time.time() - start
+        logger.info(f"❗️ query_watsonx_ai inference took {elapsed:.1f}s")
 
         if response.status_code != 200:
             error_msg = f"WatsonX AI Error {response.status_code}: {response.text}"
@@ -1588,6 +1612,37 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
 
         logger.info(f"Executing analysis for query '{user_question}': {analysis_plan}")
 
+        # ── Ensure we always have a CreatedDate filter ──
+        if "CreatedDate" not in filters:
+            # compute current Indian FY quarter
+            now = datetime.datetime.now(UTC)
+            if 4 <= now.month <= 6:
+                start = pd.Timestamp(f"{now.year}-04-01T00:00:00Z", tz=UTC)
+                end   = pd.Timestamp(f"{now.year}-06-30T23:59:59Z", tz=UTC)
+            elif 7 <= now.month <= 9:
+                start = pd.Timestamp(f"{now.year}-07-01T00:00:00Z", tz=UTC)
+                end   = pd.Timestamp(f"{now.year}-09-30T23:59:59Z", tz=UTC)
+            elif 10 <= now.month <= 12:
+                start = pd.Timestamp(f"{now.year}-10-01T00:00:00Z", tz=UTC)
+                end   = pd.Timestamp(f"{now.year}-12-31T23:59:59Z", tz=UTC)
+            else:
+                # Jan–Mar → Q4 of previous FY
+                start = pd.Timestamp(f"{now.year-1}-01-01T00:00:00Z", tz=UTC)
+                end   = pd.Timestamp(f"{now.year-1}-03-31T23:59:59Z", tz=UTC)
+            filters["CreatedDate"] = {
+                "$gte": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "$lte": end.strftime("%Y-%m-%dT%H:%M:%SZ")
+            }
+            # reflect in selected_quarter for downstream use
+            qlabel = (
+                "Q1" if 4 <= now.month <= 6 else
+                "Q2" if 7 <= now.month <= 9 else
+                "Q3" if 10 <= now.month <= 12 else
+                "Q4"
+            )
+            analysis_plan["quarter"] = f"{qlabel} FY{start.year}-{(start.year+1)%100:02d}"
+        # ───────────────────────────────────────────────
+
         # Select the appropriate dataframe based on object_type
         if object_type == "lead":
             df = leads_df
@@ -1605,13 +1660,33 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
                 (df["Sales_Order_Number__c"] != "")
             ]
         
-
-        
         elif object_type == "task":
             df = task_df
         else:
             logger.error(f"Unsupported object_type: {object_type}")
             return {"type": "error", "message": f"Unsupported object type: {object_type}"}
+        
+        # ── Apply CreatedDate filter across all tables ──
+        if "CreatedDate" in filters:
+            # parse AI‑or‑default dates
+            created = filters["CreatedDate"]
+            start = pd.to_datetime(created["$gte"], utc=True)
+            end   = pd.to_datetime(created["$lte"], utc=True)
+
+            # filter the main df
+            df["CreatedDate"] = pd.to_datetime(df["CreatedDate"], utc=True, errors="coerce")
+            df = df[(df["CreatedDate"] >= start) & (df["CreatedDate"] <= end)]
+
+            # also restrict events and opportunities for funnel joins
+            events_df = events_df[
+                (pd.to_datetime(events_df["CreatedDate"], utc=True) >= start) &
+                (pd.to_datetime(events_df["CreatedDate"], utc=True) <= end)
+            ]
+            opportunities_df = opportunities_df[
+                (pd.to_datetime(opportunities_df["CreatedDate"], utc=True) >= start) &
+                (pd.to_datetime(opportunities_df["CreatedDate"], utc=True) <= end)
+            ]
+        # ───────────────────────────────────────────────
         # Add validation step before filtering to ensure data is present
         if object_type == "opportunity" and (df.empty or 'Sales_Team_Feedback__c' not in df.columns):
             logger.error(f"{object_type}_df is empty or missing Sales_Team_Feedback__c: {df.columns}")
@@ -1672,7 +1747,12 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
 
         if is_sales_related and object_type == "opportunity":
             ("testing data check")
-            
+            # logger.info(f"Detected sales-related question: '{user_question}'. Filtering Sales_Order_Number__c first.")
+            # if "Sales_Order_Number__c" not in df.columns:
+            #     logger.error("Sales_Order_Number__c column not found")
+            #     return {"type": "error", "message": "Sales_Order_Number__c column not found"}
+            # # First filter to exclude None values in Sales_Order_Number__c
+            # df = df[df["Sales_Order_Number__c"].notna() & (df["Sales_Order_Number__c"] != "None")]
             if "Sales_Order_Number__c" in df.columns:
                 df = df[df["Sales_Order_Number__c"].notna() & (df["Sales_Order_Number__c"] != "None") & (df["Sales_Order_Number__c"] != "")]
                 logger.info(f"Filtered Sales_Order_Number__c for sales-related question. Remaining rows: {len(df)}")
@@ -1787,7 +1867,12 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
             logger.info(f"After filter on {field}: {filtered_df.shape}")
 
         # Define quarters for 2024-25 financial year
-        
+        # quarters = {
+        #     "Q1 2024-25": {"start": pd.to_datetime("2024-04-01T00:00:00Z", utc=True), "end": pd.to_datetime("2024-06-30T23:59:59Z", utc=True)},
+        #     "Q2 2024-25": {"start": pd.to_datetime("2024-07-01T00:00:00Z", utc=True), "end": pd.to_datetime("2024-09-30T23:59:59Z", utc=True)},
+        #     "Q3 2024-25": {"start": pd.to_datetime("2024-10-01T00:00:00Z", utc=True), "end": pd.to_datetime("2024-12-31T23:59:59Z", utc=True)},
+        #     "Q4 2024-25": {"start": pd.to_datetime("2025-01-01T00:00:00Z", utc=True), "end": pd.to_datetime("2025-03-31T23:59:59Z", utc=True)},
+        # }
         def get_fiscal_quarters(start_year: int):
             """Generate fiscal quarter mappings given the starting year."""
             end_year = start_year + 1
@@ -1811,7 +1896,27 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
             }
 
         # Apply quarter filter if specified
-        
+        # if selected_quarter and 'CreatedDate' in filtered_df.columns:
+        #     quarter = quarters.get(selected_quarter)
+        #     if not quarter:
+        #         logger.error(f"Invalid quarter specified: {selected_quarter}")
+        #         return {"type": "error", "message": f"Invalid quarter specified: {selected_quarter}"}
+        #     filtered_df['CreatedDate'] = filtered_df['CreatedDate'].dt.tz_convert('UTC')
+        #     logger.info(f"Filtering for {selected_quarter}: {quarter['start']} to {quarter['end']}")
+        #     logger.info(f"Sample CreatedDate before quarter filter (first 5, UTC):\n{filtered_df['CreatedDate'].head().to_string()}")
+        #     filtered_df = filtered_df[
+        #         (filtered_df['CreatedDate'] >= quarter["start"]) &
+        #         (filtered_df['CreatedDate'] <= quarter["end"])
+        #     ]
+        #     logger.info(f"Records after applying quarter filter {selected_quarter}: {len(filtered_df)} rows")
+        #     if not filtered_df.empty:
+        #         logger.info(f"Sample CreatedDate after quarter filter (first 5, UTC):\n{filtered_df['CreatedDate'].head().to_string()}")
+        #     else:
+        #         logger.warning(f"No records found for {selected_quarter}")
+
+        # logger.info(f"Final filtered {object_type} DataFrame shape: {filtered_df.shape}")
+        # if filtered_df.empty:
+        #     return {"type": "info", "message": f"No {object_type} records found matching the criteria for {selected_quarter if selected_quarter else 'the specified period'}"}
         if selected_quarter and 'CreatedDate' in filtered_df.columns:
             # Extract fiscal year from selected_quarter (e.g., "Q1 2025-26")
             match = re.match(r"Q[1-4]\s+(\d{4})-\d{2}", selected_quarter)
@@ -2314,7 +2419,8 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
 
                     # Step 3: Meeting done = only those events with status 'Completed'
                     meeting_done = len(product_events[product_events["Appointment_Status__c"] == "Completed"])
-                    
+                    #product_meetings = filtered_events[filtered_events["Project_Category__c"] == product]
+                    #meeting_done = len(product_meetings[product_meetings["Appointment_Status__c"] == "Completed"])
                     disqualified_leads = len(group[group["Customer_Feedback__c"] == "Not Interested"])
                     open_leads = len(group[group["Status"].isin(["New", "Nurturing"])])
                     junk_percentage = ((total_leads - valid_leads) / total_leads * 100) if total_leads > 0 else 0
@@ -2336,7 +2442,9 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
                         (opportunities_df["CreatedById"].isin(owner_ids)) &
                         (opportunities_df["Sales_Order_Number__c"].notna()) & 
                         (opportunities_df["Sales_Order_Number__c"] != "None") 
-                       
+                        # (opportunities_df["Sales_Order_Number__c"].notna()) & 
+                        # (opportunities_df["Sales_Order_Number__c"] != "None") & 
+                        # (opportunities_df["Project_Category__c"] == product)
                     ])
                     md_sd_ratio = (meeting_done / sale_done * 100 if sale_done > 0 else 0) if meeting_done > 0 else 0
 
@@ -2428,7 +2536,8 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
                     owner_ids = group["OwnerId"].dropna().unique()
                     project_events = events_df[events_df["CreatedById"].isin(owner_ids)]
                     meeting_done = len(project_events[project_events["Appointment_Status__c"] == "Completed"])
-                   
+                    #project_meetings = filtered_events[filtered_events["Project__c"] == project]
+                    #meeting_done = len(project_meetings[project_meetings["Appointment_Status__c"] == "Completed"])
                     disqualified_leads = len(group[group["Customer_Feedback__c"] == "Not Interested"])
                     open_leads = len(group[group["Status"].isin(["New", "Nurturing"])])
                     junk_percentage = ((total_leads - valid_leads) / total_leads * 100) if total_leads > 0 else 0
@@ -2605,7 +2714,8 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
                     owner_ids = group["OwnerId"].dropna().unique()
                     source_events = events_df[events_df["CreatedById"].isin(owner_ids)]
                     meeting_done = len(source_events[source_events["Appointment_Status__c"] == "Completed"])
-                   
+                    #source_meetings = filtered_events[filtered_events["LeadSource"] == source]
+                    #meeting_done = len(source_meetings[source_meetings["Appointment_Status__c"] == "Completed"])
                     disqualified_leads = len(group[group["Customer_Feedback__c"] == "Not Interested"])
                     open_leads = len(group[group["Status"].isin(["New", "Nurturing"])])
                     junk_percentage = ((total_leads - valid_leads) / total_leads * 100) if total_leads > 0 else 0
@@ -2631,7 +2741,9 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
                         (opportunities_df["CreatedById"].isin(owner_ids)) &
                         (opportunities_df["Sales_Order_Number__c"].notna()) & 
                         (opportunities_df["Sales_Order_Number__c"] != "None") 
-                       
+                        # (opportunities_df["Sales_Order_Number__c"].notna()) & 
+                        # (opportunities_df["Sales_Order_Number__c"] != "None") & 
+                        # (opportunities_df["LeadSource"] == source)
                     ])
                     md_sd_ratio = (meeting_done / sale_done * 100 if sale_done > 0 else 0) if meeting_done > 0 else 0
 
@@ -2840,7 +2952,7 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
                             filtered_df = filtered_df[filtered_df[field] == value]
                         elif isinstance(value, dict):
                             if field == "CreatedDate":
-                               
+                                print("++++++++++++bbvvhgfh++++++++++++++")
                                 if "$gte" in value:
                                     gte_value = pd.to_datetime(value["$gte"], utc=True)
                                     filtered_df = filtered_df[filtered_df[field] >= gte_value]
@@ -3086,7 +3198,7 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
                     if field in filtered_df.columns:
                         if isinstance(value, str):
                             filtered_df = filtered_df[filtered_df[field] == value]
-                            
+                            print("+++++++++++++source wise fjdjfdkfjd+++++++++++++++++++")
                         elif isinstance(value, dict):
                             if field == "CreatedDate":
                                 if "$gte" in value:
@@ -3095,6 +3207,15 @@ def execute_analysis(analysis_plan, leads_df, users_df, cases_df, events_df, opp
                                 if "$lte" in value:
                                     lte_value = pd.to_datetime(value["$lte"], utc=True)
                                     filtered_df = filtered_df[filtered_df["CreatedDate"] <= lte_value]
+
+                            # if field == "CreatedDate":
+                            #     if "$gte" in value:
+                            #         gte_value = pd.to_datetime(value["$gte"], utc=True)
+                            #         filtered_df = filtered_df[filtered_df[field] >= gte_value]
+                            #     if "$lte" in value:
+                            #         lte_value = pd.to_datetime(value["$lte"], utc=True)
+                            #         filtered_df = filtered_df[filtered_df[field] <= lte_value]
+
 
                 # Filter for specific subjects: "Follow Up" or "Sales Follow Up"
                 subject_filters = ["Follow Up", "Sales Follow Up"]
@@ -4561,11 +4682,6 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 import uvicorn
 
-# === Configuration Section ===
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-load_dotenv()
-
 # FastAPI App
 app = FastAPI()
 
@@ -4668,9 +4784,13 @@ async def load_salesforce_data_async():
 def load_salesforce_data():
     """Synchronous wrapper for async data loading"""
     try:
+        start = time.time() 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        return loop.run_until_complete(load_salesforce_data_async())
+        result = loop.run_until_complete(load_salesforce_data_async())
+        elapsed = time.time() - start
+        logger.info(f"❗️ load_salesforce_data took {elapsed:.1f}s")
+        return result    
     except Exception as e:
         logger.error(f"Error in event loop: {str(e)}")
         raise
@@ -4679,8 +4799,15 @@ def load_salesforce_data():
 async def analyze_question(question: str):
     """Main analysis function"""
     try:
-        # Load data asynchronously
-        leads, users, cases, events, opportunities, tasks = await load_salesforce_data_async()
+        # ── CACHE Salesforce data on first call ──
+        if not hasattr(app.state, "sf_data"):
+            logger.info("⚡️ First analyze: loading Salesforce data into cache")
+            app.state.sf_data = await load_salesforce_data_async()
+        else:
+            logger.info("⚡️ Using cached Salesforce data")
+
+        # Unpack cached DataFrames (runs on both first and subsequent calls)
+        leads, users, cases, events, opportunities, tasks = app.state.sf_data
         
         # Create context for AI
         data_context = create_data_context(leads, users, cases, events, opportunities, tasks)
